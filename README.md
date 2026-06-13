@@ -128,9 +128,9 @@ Stated plainly, because they are part of the analysis:
 - [x] Detector, attack, and defense modules — 24 tests passing
 - [x] FastAPI service + interactive web demo
 - [x] Deployed publicly on Hugging Face Spaces
-- [ ] CI/CD: auto-test and auto-deploy on push
+- [X] CI/CD: auto-test and auto-deploy on push
 - [x] CPU-only image slim-down
-- [ ] tree-sitter AST stage; block-comment-aware filtering
+- [X] tree-sitter AST stage; block-comment-aware filtering
 
 ---
 
