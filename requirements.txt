@@ -2,6 +2,10 @@
 # Pinned loosely (>=) for now; we'll freeze exact versions before deploy.
 
 # --- Core ML: the detector and the FLAN-T5 attack generator ---
+# Install the CPU-only build of PyTorch. The default 'torch' pulls ~2GB of
+# NVIDIA CUDA libraries meant for GPUs; our free server has no GPU, so this
+# line tells pip to fetch the much smaller CPU build instead.
+--extra-index-url https://download.pytorch.org/whl/cpu
 torch>=2.2
 transformers>=4.40
 sentencepiece>=0.2          # FLAN-T5's tokenizer needs this

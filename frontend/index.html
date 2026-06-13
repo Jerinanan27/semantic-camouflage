@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Semantic Camouflage — fooling a vulnerability detector</title>
+<style>
+  :root {
+    --bg: #0b0e14; --panel: #131a26; --panel-2: #0f151f;
+    --line: #233044; --ink: #d6e0ee; --muted: #7e8da0;
+    --steel: #5b8def; --danger: #ff6b6b; --safe: #34d399; --warn: #f5c451;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
+    --sans: "Inter", system-ui, -apple-system, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: var(--sans); line-height: 1.5;
+    background-image: radial-gradient(circle at 20% -10%, #16203010, transparent 40%);
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 32px 20px 80px; }
+
+  header h1 {
+    font-family: var(--mono); font-size: 26px; font-weight: 600;
+    margin: 0 0 6px; letter-spacing: -0.5px;
+  }
+  header h1 .accent { color: var(--steel); }
+  header p { color: var(--muted); margin: 0 0 28px; max-width: 64ch; }
+
+  .controls { background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px; padding: 18px; }
+  label.field { display: block; font-size: 13px; color: var(--muted);
+    margin-bottom: 8px; }
+  textarea {
+    width: 100%; min-height: 120px; resize: vertical; background: var(--panel-2);
+    color: var(--ink); border: 1px solid var(--line); border-radius: 8px;
+    padding: 12px; font-family: var(--mono); font-size: 13px; line-height: 1.6;
+  }
+  textarea:focus { outline: none; border-color: var(--steel); }
+
+  .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+    margin-top: 14px; }
+  .examples { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    background: var(--panel-2); border: 1px solid var(--line); color: var(--ink);
+    font-size: 12px; padding: 6px 11px; border-radius: 999px; cursor: pointer;
+    font-family: var(--mono);
+  }
+  .chip:hover { border-color: var(--steel); }
+  .spacer { flex: 1; }
+  .toggle { display: flex; align-items: center; gap: 8px; font-size: 13px;
+    color: var(--muted); cursor: pointer; user-select: none; }
+  button.run {
+    background: var(--steel); color: #061021; border: 0; font-weight: 600;
+    padding: 10px 22px; border-radius: 8px; cursor: pointer; font-size: 14px;
+  }
+  button.run:disabled { opacity: 0.5; cursor: progress; }
+
+  .status { margin: 22px 0; font-family: var(--mono); font-size: 13px;
+    color: var(--muted); min-height: 20px; }
+  .status.err { color: var(--danger); }
+
+  /* The three-stage story */
+  .stages { display: grid; grid-template-columns: 1fr; gap: 14px; }
+  @media (min-width: 820px) { .stages { grid-template-columns: 1fr 1fr 1fr; } }
+  .stage { background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px; padding: 16px; display: none; }
+  .stage .eyebrow { font-family: var(--mono); font-size: 11px;
+    letter-spacing: 1px; text-transform: uppercase; color: var(--muted); }
+  .stage h3 { margin: 4px 0 14px; font-size: 16px; }
+
+  .verdict { display: inline-flex; align-items: center; gap: 7px;
+    font-family: var(--mono); font-size: 13px; font-weight: 600;
+    padding: 5px 10px; border-radius: 6px; }
+  .verdict.vuln { background: #3a1620; color: var(--danger); }
+  .verdict.safe { background: #0f2f25; color: var(--safe); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+
+  .meter { margin: 14px 0 6px; }
+  .meter .track { height: 10px; background: var(--panel-2);
+    border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+  .meter .fill { height: 100%; width: 0;
+    transition: width 0.9s cubic-bezier(.2,.7,.2,1); border-radius: 999px; }
+  .meter .label { font-family: var(--mono); font-size: 11px;
+    color: var(--muted); margin-top: 6px; }
+
+  pre.code { background: var(--panel-2); border: 1px solid var(--line);
+    border-radius: 8px; padding: 12px; font-family: var(--mono); font-size: 11.5px;
+    line-height: 1.55; max-height: 240px; overflow: auto; white-space: pre-wrap;
+    word-break: break-word; color: #aeb9c9; margin: 14px 0 0; }
+
+  .summary { display: none; margin-top: 20px; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px;
+    font-size: 14px; }
+  .summary b { color: var(--ink); }
+  .tag { font-family: var(--mono); font-size: 12px; padding: 3px 8px;
+    border-radius: 5px; }
+  .tag.yes { background: #0f2f25; color: var(--safe); }
+  .tag.no { background: #3a1620; color: var(--danger); }
+
+  footer { margin-top: 40px; color: var(--muted); font-size: 12px;
+    border-top: 1px solid var(--line); padding-top: 16px; }
+  footer a { color: var(--steel); text-decoration: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Semantic <span class="accent">Camouflage</span></h1>
+    <p>An AI model (GraphCodeBERT) reads a C/C++ function and decides whether it's
+       vulnerable. Watch what happens when the code is wrapped in fake "all-clear"
+       comments — the code is unchanged, but the model gets fooled. Then a defense
+       strips the fake comments and the verdict comes back.</p>
+  </header>
+
+  <div class="controls">
+    <label class="field" for="code">Function code</label>
+    <textarea id="code" spellcheck="false"></textarea>
+    <div class="row">
+      <div class="examples" id="examples"></div>
+      <span class="spacer"></span>
+      <label class="toggle"><input type="checkbox" id="useLlm" /> Use LLM attack (slower)</label>
+      <button class="run" id="run">Run analysis</button>
+    </div>
+  </div>
+
+  <div class="status" id="status"></div>
+
+  <div class="stages">
+    <div class="stage" id="stage-clean">
+      <div class="eyebrow">Step 1</div><h3>Original code</h3>
+      <div id="verdict-clean"></div>
+      <div class="meter"><div class="track"><div class="fill" id="fill-clean"></div></div>
+        <div class="label" id="label-clean"></div></div>
+      <pre class="code" id="code-clean"></pre>
+    </div>
+    <div class="stage" id="stage-injected">
+      <div class="eyebrow">Step 2</div><h3>After camouflage attack</h3>
+      <div id="verdict-injected"></div>
+      <div class="meter"><div class="track"><div class="fill" id="fill-injected"></div></div>
+        <div class="label" id="label-injected"></div></div>
+      <pre class="code" id="code-injected"></pre>
+    </div>
+    <div class="stage" id="stage-defended">
+      <div class="eyebrow">Step 3</div><h3>After defense</h3>
+      <div id="verdict-defended"></div>
+      <div class="meter"><div class="track"><div class="fill" id="fill-defended"></div></div>
+        <div class="label" id="label-defended"></div></div>
+      <pre class="code" id="code-defended"></pre>
+    </div>
+  </div>
+
+  <div class="summary" id="summary"></div>
+
+  <footer>
+    Model: <a href="https://huggingface.co/Jerin27/graphcodebert-vuln" target="_blank">Jerin27/graphcodebert-vuln</a>
+    · Code: <a href="https://github.com/Jerinanan27/semantic-camouflage" target="_blank">GitHub</a>
+    · A CSE487 research project, deployed.
+  </footer>
+</div>
+
+<script>
+const EXAMPLES = {
+  "use-after-free": "free(ptr);\nptr->next = head;\nreturn ptr;",
+  "sprintf overflow": "char path[256];\nsprintf(path, \"/home/%s/file\", username);\nopen(path);",
+  "strcpy overflow": "char buf[64];\nstrcpy(buf, user_input);\nreturn process(buf);",
+};
+
+const $ = id => document.getElementById(id);
+
+// Build example chips.
+const exWrap = $("examples");
+Object.entries(EXAMPLES).forEach(([name, code]) => {
+  const b = document.createElement("button");
+  b.className = "chip"; b.textContent = name;
+  b.onclick = () => { $("code").value = code; };
+  exWrap.appendChild(b);
+});
+$("code").value = EXAMPLES["use-after-free"];   // start with a strong example
+
+function renderVerdict(el, pred) {
+  const vuln = pred.is_vulnerable;
+  el.innerHTML = `<span class="verdict ${vuln ? "vuln" : "safe"}">
+    <span class="dot"></span>${vuln ? "VULNERABLE" : "NOT VULNERABLE"}</span>`;
+}
+function renderMeter(fillEl, labelEl, prob) {
+  const pct = Math.round(prob * 100);
+  fillEl.style.width = pct + "%";
+  fillEl.style.background = prob >= 0.5 ? "var(--danger)" : "var(--safe)";
+  labelEl.textContent = pct + "% confident it's vulnerable";
+}
+function showStage(stage, data) {
+  $("stage-" + stage).style.display = "block";
+  renderVerdict($("verdict-" + stage), data.prediction);
+  renderMeter($("fill-" + stage), $("label-" + stage), data.prediction.prob_vulnerable);
+  $("code-" + stage).textContent = data.code;
+}
+
+$("run").onclick = async () => {
+  const code = $("code").value.trim();
+  if (!code) { setStatus("Paste some code first.", true); return; }
+  const useLlm = $("useLlm").checked;
+
+  ["clean","injected","defended"].forEach(s => $("stage-"+s).style.display = "none");
+  $("summary").style.display = "none";
+  $("run").disabled = true;
+  setStatus(useLlm
+    ? "Running… the LLM attack is slow on a free server (first run also downloads models). Please wait."
+    : "Running… the first run downloads the model, so it may take a minute.");
+
+  try {
+    const res = await fetch("/pipeline", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ code, use_llm: useLlm }),
+    });
+    if (!res.ok) throw new Error("Server returned " + res.status);
+    const data = await res.json();
+
+    showStage("clean", data.clean);
+    setTimeout(() => showStage("injected", data.injected), 250);
+    setTimeout(() => showStage("defended", data.defended), 500);
+
+    const flip = data.attack_flipped, restored = data.defense_restored;
+    $("summary").style.display = "block";
+    $("summary").innerHTML =
+      `<b>Attack fooled the detector:</b> <span class="tag ${flip?"yes":"no"}">${flip?"yes":"no — confidence dropped but verdict held"}</span>
+       &nbsp;·&nbsp; <b>Defense restored the verdict:</b> <span class="tag ${restored?"yes":"no"}">${restored?"yes":"no"}</span>`;
+    setStatus("");
+  } catch (e) {
+    setStatus("Something went wrong: " + e.message + ". Try again — the server may still be waking up.", true);
+  } finally {
+    $("run").disabled = false;
+  }
+};
+
+function setStatus(msg, isErr) {
+  const el = $("status"); el.textContent = msg;
+  el.className = "status" + (isErr ? " err" : "");
+}
+</script>
+</body>
+</html>

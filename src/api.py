@@ -18,9 +18,11 @@ reused, via cached provider functions. Endpoints receive them through FastAPI's
 """
 
 from functools import lru_cache
+import os
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 
 from . import config, schemas
 from .attack import Attacker
@@ -71,6 +73,16 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
 )
+
+
+_FRONTEND = os.path.join(os.path.dirname(os.path.dirname(__file__)),
+                         "frontend", "index.html")
+
+
+@app.get("/")
+def home():
+    """Serve the demo web page (fixes the bare-root 'Not Found')."""
+    return FileResponse(_FRONTEND)
 
 
 @app.get("/health", response_model=schemas.HealthOut)
