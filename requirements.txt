@@ -1,0 +1,27 @@
+# Runtime dependencies for the service.
+# Pinned loosely (>=) for now; we'll freeze exact versions before deploy.
+
+# --- Core ML: the detector and the FLAN-T5 attack generator ---
+torch>=2.2
+transformers>=4.40
+sentencepiece>=0.2          # FLAN-T5's tokenizer needs this
+
+# --- Defense pipeline ---
+sentence-transformers>=2.7  # comment embeddings (all-MiniLM-L6-v2)
+scikit-learn>=1.4           # DBSCAN clustering
+numpy>=1.26
+
+# --- Model registry ---
+huggingface-hub>=0.23       # downloads your fine-tuned checkpoint at startup
+
+# --- API ---
+fastapi>=0.110
+uvicorn[standard]>=0.29     # the server that runs the FastAPI app
+pydantic>=2.6               # request/response validation
+
+# --- Observability (added in the Day 5 step) ---
+prometheus-client>=0.20
+
+# --- Dev / test only (fine to keep here for a small project) ---
+pytest>=8.0
+ruff>=0.4                   # linter + formatter, run in CI
