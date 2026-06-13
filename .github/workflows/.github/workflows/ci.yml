@@ -1,0 +1,51 @@
+# Continuous Integration + Deployment.
+#
+# On every push to main, GitHub runs this automatically:
+#   1) "test" job  — lint the code and run the test suite.
+#   2) "deploy" job — ONLY if tests pass, copy the code to the Hugging Face
+#                     Space, which rebuilds and redeploys the live demo.
+#
+# This means a change that breaks the tests can never reach the live demo, and
+# you never have to upload to the Space by hand again.
+#
+# One-time setup (explained in chat): add a repository secret named HF_TOKEN
+# (a Hugging Face *write* token) under Settings -> Secrets and variables ->
+# Actions on GitHub.
+
+name: CI / Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dev dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Lint
+        run: ruff check src tests scripts
+      - name: Run tests
+        run: pytest -q
+
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Push to Hugging Face Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          git push --force \
+            "https://Jerin27:[email protected]/spaces/Jerin27/semantic-camouflage" \
+            main
