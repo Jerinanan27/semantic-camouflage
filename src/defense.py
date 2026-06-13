@@ -23,7 +23,6 @@ Two design choices worth understanding
 
 from __future__ import annotations
 
-import ast
 import re
 from dataclasses import dataclass, field
 from typing import Protocol
@@ -107,16 +106,96 @@ class DefenseResult:
 def split_comments_and_code(code: str) -> tuple[list[str], list[str]]:
     """Partition lines into comment-like lines and everything else.
 
-    A line is treated as a comment if, after stripping whitespace, it starts
-    with //, /*, or #. (Same predicate as the notebook.)
+    Single-line comments start (after stripping) with //, /*, or #. Multi-line
+    /* ... */ blocks are tracked so that EVERY line inside the block — not just
+    the opening line — is classified as a comment. This closes the "block
+    comment leak": previously the interior lines of an injected /* audit
+    summary */ block were mistaken for code and survived the defense.
     """
     comments, code_only = [], []
+    in_block = False
     for line in code.split("\n"):
-        if line.strip().startswith(("//", "/*", "#")):
+        stripped = line.strip()
+        if in_block:
             comments.append(line)
+            if "*/" in line:               # block ends on this line
+                in_block = False
+        elif stripped.startswith(("//", "#")):
+            comments.append(line)
+        elif stripped.startswith("/*"):
+            comments.append(line)
+            if "*/" not in stripped:        # block stays open past this line
+                in_block = True
         else:
             code_only.append(line)
     return comments, code_only
+
+
+# --- Code parsing for the AST stage --------------------------------------
+
+# Dangerous functions whose presence makes a "sanitized / validated" claim in a
+# nearby comment suspicious. Now that we can parse C/C++, this includes the
+# classic unsafe C calls, not just Python's eval/exec/open.
+_UNSAFE_CALLS = {"eval", "exec", "open", "system", "popen",
+                 "strcpy", "strcat", "sprintf", "gets", "scanf",
+                 "memcpy", "malloc", "free", "realloc"}
+
+_c_parser = None
+_c_parser_tried = False
+
+
+def _get_c_parser():
+    """Lazily build a tree-sitter C parser, once. Returns None if tree-sitter
+    isn't available, so the AST stage degrades gracefully instead of crashing."""
+    global _c_parser, _c_parser_tried
+    if _c_parser_tried:
+        return _c_parser
+    _c_parser_tried = True
+    try:
+        from tree_sitter import Language, Parser
+        import tree_sitter_c
+        _c_parser = Parser(Language(tree_sitter_c.language()))
+    except Exception:
+        _c_parser = None
+    return _c_parser
+
+
+def extract_call_names(code: str) -> set[str]:
+    """Return the set of function names called in `code`.
+
+    Tries tree-sitter (handles C/C++) first, then falls back to Python's `ast`
+    (handles Python), then to an empty set. This is the fix for the old AST
+    stage, which used Python's `ast` on C code and silently did nothing.
+    """
+    parser = _get_c_parser()
+    if parser is not None:
+        try:
+            tree = parser.parse(bytes(code, "utf8"))
+            names: set[str] = set()
+            src = code.encode("utf8")
+
+            def walk(node):
+                if node.type == "call_expression":
+                    fn = node.child_by_field_name("function")
+                    if fn is not None and fn.type == "identifier":
+                        names.add(src[fn.start_byte:fn.end_byte].decode("utf8"))
+                for child in node.children:
+                    walk(child)
+
+            walk(tree.root_node)
+            if names:
+                return names
+        except Exception:
+            pass
+
+    # Fallback: Python source.
+    try:
+        import ast as _ast
+        tree = _ast.parse(code)
+        return {n.func.id for n in _ast.walk(tree)
+                if isinstance(n, _ast.Call) and isinstance(n.func, _ast.Name)}
+    except Exception:
+        return set()
 
 
 # --- The pipeline ---------------------------------------------------------
@@ -188,31 +267,28 @@ class CommentDefensePipeline:
                             min_samples=config.DBSCAN_MIN_SAMPLES).fit(emb).labels_
         except Exception:
             return comments, []  # clustering failed -> keep everything
-        kept = [c for c, l in zip(comments, labels) if l != -1]
-        removed = [c for c, l in zip(comments, labels) if l == -1]
+        kept = [c for c, lbl in zip(comments, labels) if lbl != -1]
+        removed = [c for c, lbl in zip(comments, labels) if lbl == -1]
         return kept, removed
 
     def _stage_ast(self, comments, code_only):
-        """Stage 5 — AST consistency.
+        """Stage 5 — AST consistency (now C/C++ aware).
 
-        KNOWN LIMITATION: this parses the code with Python's `ast` module, but
-        the dataset is C/C++. `ast.parse` raises on C, we hit the except, and
-        the stage becomes a no-op on virtually every real sample. We keep the
-        original behavior for faithfulness and document it here. The proper fix
-        is a language-aware parser such as tree-sitter (see README roadmap).
+        Parses the executable lines and extracts the function calls. A comment
+        that *claims* the code is sanitized/validated is removed when the code
+        actually calls a dangerous function (strcpy, gets, system, eval, ...) —
+        the claim contradicts the code. Previously this used Python's `ast` on
+        C code and was a silent no-op; it now uses tree-sitter (see
+        `extract_call_names`).
         """
-        try:
-            tree = ast.parse("\n".join(code_only))
-        except Exception:
-            return comments, []  # cannot parse (e.g. C/C++) -> no-op
-        unsafe = {n.func.id for n in ast.walk(tree)
-                  if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+        unsafe = extract_call_names("\n".join(code_only)) & _UNSAFE_CALLS
+        if not unsafe:
+            return comments, []
         kept, removed = [], []
         for c in comments:
             low = c.lower()
-            claims_safety = ("sanit" in low or "validate" in low)
-            has_unsafe_call = bool(unsafe & {"eval", "exec", "open"})
-            (removed if claims_safety and has_unsafe_call else kept).append(c)
+            claims_safety = ("sanit" in low or "validate" in low or "safe" in low)
+            (removed if claims_safety else kept).append(c)
         return kept, removed
 
     def _stage_position(self, comments, code_only):

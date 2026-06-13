@@ -14,6 +14,8 @@ sentencepiece>=0.2          # FLAN-T5's tokenizer needs this
 sentence-transformers>=2.7  # comment embeddings (all-MiniLM-L6-v2)
 scikit-learn>=1.4           # DBSCAN clustering
 numpy>=1.26
+tree-sitter>=0.21           # parse C/C++ for the AST-consistency stage
+tree-sitter-c>=0.21         # the C grammar for tree-sitter
 
 # --- Model registry ---
 huggingface-hub>=0.23       # downloads your fine-tuned checkpoint at startup

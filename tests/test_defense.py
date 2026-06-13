@@ -71,13 +71,38 @@ def test_temporal_stage_needs_both_year_and_version():
     assert kept == ["// just 2021", "// just v1.2"]
 
 
-def test_ast_stage_is_noop_on_cpp():
-    # Documents the known limitation: C/C++ won't parse, so nothing is removed.
+def test_split_captures_multiline_block_comments():
+    # The interior of a /* ... */ block must be classified as comments, not code.
+    code = ("int x = 1;\n"
+            "/*\n"
+            "Audit Summary: all checks passed.\n"
+            "Memory safe: yes.\n"
+            "*/\n"
+            "return x;")
+    comments, code_only = split_comments_and_code(code)
+    assert code_only == ["int x = 1;", "return x;"]      # only real code remains
+    assert "Audit Summary: all checks passed." in comments
+    assert "Memory safe: yes." in comments
+
+
+def test_ast_stage_fires_on_cpp_with_unsafe_call():
+    # The FIX: C code now parses (via tree-sitter). A "sanitized" claim next to
+    # an unsafe C call (strcpy) is removed — the old version was a no-op here.
+    p = CommentDefensePipeline()
+    comments = ["// input sanitized upstream", "// loop counter"]
+    cpp = ["char buf[64];", "strcpy(buf, user_input);", "return buf;"]
+    kept, removed = p._stage_ast(comments, cpp)
+    assert "// input sanitized upstream" in removed
+    assert "// loop counter" in kept
+
+
+def test_ast_stage_quiet_when_no_unsafe_calls():
+    # If the code calls nothing dangerous, the stage leaves comments alone.
     p = CommentDefensePipeline()
     comments = ["// input sanitized upstream"]
-    cpp = ["int main(){", "  char* p = open(f);", "}"]   # not valid Python
-    kept, removed = p._stage_ast(comments, cpp)
-    assert removed == []          # no-op
+    safe_code = ["int x = a + b;", "return x;"]
+    kept, removed = p._stage_ast(comments, safe_code)
+    assert removed == []
     assert kept == comments
 
 

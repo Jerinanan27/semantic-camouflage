@@ -19,7 +19,6 @@ Run from the project root:
 """
 
 import argparse
-import ast
 import json
 import os
 import sys
@@ -131,7 +130,8 @@ def main():
     results = []
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
     header = f"{'#':>3}  {'snippet':28}  {'clean':>6}  {'mode':9}  {'inj':>6}  {'drop':>6}  flip?"
-    print(header); print("-" * len(header))
+    print(header)
+    print("-" * len(header))
 
     for i, (label, code) in enumerate(snippets, 1):
         try:

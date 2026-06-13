@@ -24,7 +24,7 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
-from . import config, schemas
+from . import schemas
 from .attack import Attacker
 from .defense import CommentDefensePipeline, DefenseResult, load_default_embedder
 from .detector import Prediction, VulnerabilityDetector

@@ -24,7 +24,6 @@ can be unit-tested without downloading any model.
 """
 
 import argparse
-import ast
 import json
 import os
 import random

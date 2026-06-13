@@ -1,3 +1,13 @@
+---
+title: Semantic Camouflage
+emoji: 🛡️
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # Semantic Camouflage — Attacking and Defending a Code Vulnerability Detector
 
 **[▶ Live demo](https://huggingface.co/spaces/Jerin27/semantic-camouflage)** · **[Model](https://huggingface.co/Jerin27/graphcodebert-vuln)** · **[Code](https://github.com/Jerinanan27/semantic-camouflage)**
