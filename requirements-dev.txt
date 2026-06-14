@@ -4,6 +4,7 @@
 # CI installs only what the tests actually need. This keeps CI fast.
 
 numpy>=1.26
+pandas>=2.0
 scikit-learn>=1.4
 fastapi>=0.110
 httpx>=0.27
