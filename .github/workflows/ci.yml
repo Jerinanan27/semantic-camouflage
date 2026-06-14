@@ -31,7 +31,4 @@ jobs:
       - name: Push to Hugging Face Space
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: |
-          git push --force \
-            "https://Jerin27:[email protected]/spaces/Jerin27/semantic-camouflage" \
-            main
+        run: git push --force "https://Jerin27:[email protected]/spaces/Jerin27/semantic-camouflage" main
