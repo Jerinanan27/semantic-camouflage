@@ -101,16 +101,44 @@
   footer { margin-top: 40px; color: var(--muted); font-size: 12px;
     border-top: 1px solid var(--line); padding-top: 16px; }
   footer a { color: var(--steel); text-decoration: none; }
+
+  /* Hover tooltips (examples + LLM toggle). */
+  .tip { position: relative; }
+  .tip:hover::after {
+    content: attr(data-tip);
+    position: absolute; bottom: 135%; left: 0;
+    background: #0a0e16; border: 1px solid var(--line); color: var(--ink);
+    padding: 9px 11px; border-radius: 7px; font-family: var(--sans);
+    font-size: 12px; line-height: 1.45; width: max-content; max-width: 280px;
+    white-space: normal; z-index: 20; box-shadow: 0 8px 24px #000a;
+    pointer-events: none;
+  }
+  .tip-right:hover::after { left: auto; right: 0; }
+
+  /* Per-line code highlighting in the attack/defense panels. */
+  pre.code .ln { display: block; }
+  pre.code .ln.added { color: var(--warn); }   /* injected / leftover comments */
+  pre.code .ln.orig  { color: #aeb9c9; }        /* the untouched real code */
+
+  /* Color legend above the highlighted panels. */
+  .legend { font-family: var(--mono); font-size: 11px; color: var(--muted);
+    margin: 12px 0 0; display: flex; align-items: center; gap: 4px; }
+  .legend .swatch { display: inline-block; width: 10px; height: 10px;
+    border-radius: 2px; vertical-align: middle; margin-right: 2px; }
+  .legend .swatch.added { background: var(--warn); }
+  .legend .swatch.orig { background: #aeb9c9; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
     <h1>Semantic <span class="accent">Camouflage</span></h1>
-    <p>An AI model (GraphCodeBERT) reads a C/C++ function and decides whether it's
-       vulnerable. Watch what happens when the code is wrapped in fake "all-clear"
-       comments — the code is unchanged, but the model gets fooled. Then a defense
-       strips the fake comments and the verdict comes back.</p>
+    <p>AI models can now read source code and flag security vulnerabilities — but
+       they read the <em>comments</em> too. This demo shows how wrapping genuinely
+       vulnerable C/C++ code in fake "all-clear" comments, without changing a single
+       line of executable code, can fool the model into calling it safe. A
+       multi-stage defense then strips the deceptive comments and restores the
+       correct verdict.</p>
   </header>
 
   <div class="controls">
@@ -119,7 +147,7 @@
     <div class="row">
       <div class="examples" id="examples"></div>
       <span class="spacer"></span>
-      <label class="toggle"><input type="checkbox" id="useLlm" /> Use LLM attack (slower)</label>
+      <label class="toggle tip tip-right" data-tip="Instead of fixed fake comments, a language model (FLAN-T5) writes the fake 'all-clear' comments so they read more like a real developer wrote them. Slower, but tests a more sophisticated attack."><input type="checkbox" id="useLlm" /> Use LLM attack (slower)</label>
       <button class="run" id="run">Run analysis</button>
     </div>
   </div>
@@ -139,6 +167,7 @@
       <div id="verdict-injected"></div>
       <div class="meter"><div class="track"><div class="fill" id="fill-injected"></div></div>
         <div class="label" id="label-injected"></div></div>
+      <div class="legend"><span class="swatch added"></span> injected comments &nbsp; <span class="swatch orig"></span> original code</div>
       <pre class="code" id="code-injected"></pre>
     </div>
     <div class="stage" id="stage-defended">
@@ -146,6 +175,7 @@
       <div id="verdict-defended"></div>
       <div class="meter"><div class="track"><div class="fill" id="fill-defended"></div></div>
         <div class="label" id="label-defended"></div></div>
+      <div class="legend"><span class="swatch added"></span> leftover comments &nbsp; <span class="swatch orig"></span> original code</div>
       <pre class="code" id="code-defended"></pre>
     </div>
   </div>
@@ -161,24 +191,40 @@
 
 <script>
 const EXAMPLES = {
-  "use-after-free": "free(ptr);\nptr->next = head;\nreturn ptr;",
-  "sprintf overflow": "char path[256];\nsprintf(path, \"/home/%s/file\", username);\nopen(path);",
-  "strcpy overflow": "char buf[64];\nstrcpy(buf, user_input);\nreturn process(buf);",
-  "TensorFlow CVE": "std::vector<std::vector<std::vector<int>>> best_paths(batch_size);\nstd::vector<float> log_probs;\n\nTfLiteTensor* log_probabilities = GetOutput(context, node, 3 * top_paths);\nfloat* log_probabilities_output = GetTensorData<float>(log_probabilities);\n\nfor (int b = 0; b < batch_size; ++b) {",
-  "Redis CVE": "if (type == SDS_TYPE_5) type = SDS_TYPE_8;\n\nhdrlen = sdsHdrSize(type);\nassert(hdrlen + newlen + 1 > len);  /* Catch size_t overflow */\nif (oldtype==type) {\nnewsh = s_realloc(sh, hdrlen+newlen+1);\nif (newsh == NULL) return NULL;",
+  "use-after-free": {
+    code: "free(ptr);\nptr->next = head;\nreturn ptr;",
+    info: "Use-after-free: memory is released with free(), then used again. The freed memory may now belong to something else, letting an attacker corrupt or hijack it.",
+  },
+  "sprintf overflow": {
+    code: "char path[256];\nsprintf(path, \"/home/%s/file\", username);\nopen(path);",
+    info: "Buffer overflow: sprintf() writes into a fixed-size buffer with no length limit. A long username spills past the buffer into adjacent memory.",
+  },
+  "strcpy overflow": {
+    code: "char buf[64];\nstrcpy(buf, user_input);\nreturn process(buf);",
+    info: "Buffer overflow: strcpy() copies input into a 64-byte buffer without checking length. Input over 64 bytes overflows it — the classic memory-safety bug.",
+  },
+  "TensorFlow CVE": {
+    code: "std::vector<std::vector<std::vector<int>>> best_paths(batch_size);\nstd::vector<float> log_probs;\n\nTfLiteTensor* log_probabilities = GetOutput(context, node, 3 * top_paths);\nfloat* log_probabilities_output = GetTensorData<float>(log_probabilities);\n\nfor (int b = 0; b < batch_size; ++b) {",
+    info: "A real TensorFlow vulnerability (PYSEC-2020-326) from the training data — an out-of-bounds access in the CTC decode operation.",
+  },
+  "Redis CVE": {
+    code: "if (type == SDS_TYPE_5) type = SDS_TYPE_8;\n\nhdrlen = sdsHdrSize(type);\nassert(hdrlen + newlen + 1 > len);  /* Catch size_t overflow */\nif (oldtype==type) {\nnewsh = s_realloc(sh, hdrlen+newlen+1);\nif (newsh == NULL) return NULL;",
+    info: "A real Redis vulnerability (CVE-2021-41099) — an integer overflow in string resizing that could lead to a heap buffer overflow.",
+  },
 };
 
 const $ = id => document.getElementById(id);
 
-// Build example chips.
+// Build example chips, each with a hover tooltip explaining the bug.
 const exWrap = $("examples");
-Object.entries(EXAMPLES).forEach(([name, code]) => {
+Object.entries(EXAMPLES).forEach(([name, ex]) => {
   const b = document.createElement("button");
-  b.className = "chip"; b.textContent = name;
-  b.onclick = () => { $("code").value = code; };
+  b.className = "chip tip"; b.textContent = name;
+  b.setAttribute("data-tip", ex.info);
+  b.onclick = () => { $("code").value = ex.code; };
   exWrap.appendChild(b);
 });
-$("code").value = EXAMPLES["use-after-free"];   // start with a strong example
+$("code").value = EXAMPLES["use-after-free"].code;   // start with a strong example
 
 function renderVerdict(el, pred) {
   const vuln = pred.is_vulnerable;
@@ -191,11 +237,32 @@ function renderMeter(fillEl, labelEl, prob) {
   fillEl.style.background = prob >= 0.5 ? "var(--danger)" : "var(--safe)";
   labelEl.textContent = pct + "% confident it's vulnerable";
 }
-function showStage(stage, data) {
+
+// Escape text so code can't break the HTML.
+function escapeHtml(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// Render code with each line colored: lines that exist in `originalCode` are
+// the untouched real code; any other line was added (an injected/leftover
+// comment) and is highlighted. Pass originalCode = the code itself for no
+// highlighting (used for the clean panel).
+function renderCode(preEl, code, originalCode) {
+  const orig = new Set(
+    originalCode.split("\n").map(l => l.trim()).filter(Boolean)
+  );
+  preEl.innerHTML = code.split("\n").map(line => {
+    const t = line.trim();
+    const added = t && !orig.has(t);
+    return `<span class="ln ${added ? "added" : "orig"}">${escapeHtml(line) || " "}</span>`;
+  }).join("\n");
+}
+
+function showStage(stage, data, originalCode) {
   $("stage-" + stage).style.display = "block";
   renderVerdict($("verdict-" + stage), data.prediction);
   renderMeter($("fill-" + stage), $("label-" + stage), data.prediction.prob_vulnerable);
-  $("code-" + stage).textContent = data.code;
+  renderCode($("code-" + stage), data.code, originalCode);
 }
 
 $("run").onclick = async () => {
@@ -218,9 +285,9 @@ $("run").onclick = async () => {
     if (!res.ok) throw new Error("Server returned " + res.status);
     const data = await res.json();
 
-    showStage("clean", data.clean);
-    setTimeout(() => showStage("injected", data.injected), 250);
-    setTimeout(() => showStage("defended", data.defended), 500);
+    showStage("clean", data.clean, data.clean.code);
+    setTimeout(() => showStage("injected", data.injected, data.clean.code), 250);
+    setTimeout(() => showStage("defended", data.defended, data.clean.code), 500);
 
     const flip = data.attack_flipped, restored = data.defense_restored;
     $("summary").style.display = "block";
